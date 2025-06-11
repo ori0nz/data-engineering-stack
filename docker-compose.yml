@@ -106,20 +106,26 @@ services:
     ports: 
       - "8080:8080" # Spark Master Web UI
       - "7077:7077"   # Spark Master RPC
-    volumes: ["./scripts:/opt/bitnami/spark/scripts"]
+    volumes:
+      - ./scripts:/opt/bitnami/spark/scripts
+      - ./config/hadoop:/opt/bitnami/spark/conf/hadoop # Mount custom Hadoop config files
     networks: ["data-eng-net"]
     environment:
       - SPARK_MODE=master
+      - HADOOP_CONF_DIR=/opt/bitnami/spark/conf/hadoop # Let Spark know where to find Hadoop paths
 
   spark-worker:
     image: bitnami/spark:${SPARK_VERSION}
     container_name: spark-worker
     depends_on: ["spark-master"]
-    volumes: ["./scripts:/opt/bitnami/spark/scripts"]
+    volumes:
+      - ./scripts:/opt/bitnami/spark/scripts
+      - ./config/hadoop:/opt/bitnami/spark/conf/hadoop
     networks: ["data-eng-net"]
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark-master:7077
+      - HADOOP_CONF_DIR=/opt/bitnami/spark/conf/hadoop
 
   # -------------------------------------------------------------------
   #  Airflow Services

@@ -1,0 +1,189 @@
+# Final, Verified docker-compose.yml using official and stable images.
+version: '3.8'
+
+networks:
+  data-eng-net:
+    driver: bridge
+
+services:
+  # -------------------------------------------------------------------
+  #  PostgreSQL Backend for Airflow
+  # -------------------------------------------------------------------
+  postgres:
+    image: postgres:${POSTGRES_VERSION}
+    container_name: postgres
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - data-eng-net
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  # -------------------------------------------------------------------
+  #  Hadoop HDFS Cluster using Official Apache Images
+  # -------------------------------------------------------------------
+  namenode:
+    image: apache/hadoop:${HADOOP_VERSION}
+    container_name: namenode
+    command: ["hdfs", "namenode"]
+    ports:
+      - "9870:9870" # NameNode Web UI
+      - "9000:9000"   # HDFS RPC
+    volumes:
+      - hdfs-namenode:/opt/hadoop/dfs/name
+      - ./config/hadoop:/opt/hadoop/etc/hadoop # Mount custom Hadoop config files
+    networks:
+      - data-eng-net
+    user: "0" # only for dev environment
+    
+  datanode:
+    image: apache/hadoop:${HADOOP_VERSION}
+    container_name: datanode
+    command: ["hdfs", "datanode"]
+    depends_on:
+      - namenode
+    volumes:
+      - hdfs-datanode:/opt/hadoop/dfs/data
+      - ./config/hadoop:/opt/hadoop/etc/hadoop # Mount custom Hadoop config files
+    networks:
+      - data-eng-net
+    user: "0" # only for dev environment
+
+  # -------------------------------------------------------------------
+  #  Kafka KRaft Cluster
+  # -------------------------------------------------------------------
+  kafka1:
+    image: bitnami/kafka:${KAFKA_VERSION}
+    container_name: kafka1
+    ports: ["19091:19091"]
+    volumes: ["kafka1-data:/bitnami/kafka"]
+    networks: ["data-eng-net"]
+    environment:
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka1:9093,2@kafka2:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CLUSTER_ID=${KAFKA_CLUSTER_ID}
+      - KAFKA_CFG_LISTENERS=BROKER://:9092,CONTROLLER://:9093,EXTERNAL://:19091
+      - KAFKA_CFG_ADVERTISED_LISTENERS=BROKER://kafka1:9092,EXTERNAL://localhost:19091
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,BROKER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=BROKER
+
+  kafka2:
+    image: bitnami/kafka:${KAFKA_VERSION}
+    container_name: kafka2
+    ports: ["19092:19092"]
+    volumes: ["kafka2-data:/bitnami/kafka"]
+    networks: ["data-eng-net"]
+    environment:
+      - KAFKA_CFG_NODE_ID=2
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka1:9093,2@kafka2:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CLUSTER_ID=${KAFKA_CLUSTER_ID}
+      - KAFKA_CFG_LISTENERS=BROKER://:9092,CONTROLLER://:9093,EXTERNAL://:19092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=BROKER://kafka2:9092,EXTERNAL://localhost:19092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,BROKER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=BROKER
+
+  # -------------------------------------------------------------------
+  #  Spark Cluster
+  # -------------------------------------------------------------------
+  spark-master:
+    image: bitnami/spark:${SPARK_VERSION}
+    container_name: spark-master
+    ports: 
+      - "8080:8080" # Spark Master Web UI
+      - "7077:7077"   # Spark Master RPC
+    volumes: ["./scripts:/opt/bitnami/spark/scripts"]
+    networks: ["data-eng-net"]
+    environment:
+      - SPARK_MODE=master
+
+  spark-worker:
+    image: bitnami/spark:${SPARK_VERSION}
+    container_name: spark-worker
+    depends_on: ["spark-master"]
+    volumes: ["./scripts:/opt/bitnami/spark/scripts"]
+    networks: ["data-eng-net"]
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+
+  # -------------------------------------------------------------------
+  #  Airflow Services
+  # -------------------------------------------------------------------
+  airflow-init:
+    image: apache/airflow:${AIRFLOW_VERSION}
+    container_name: airflow-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - airflow db init && airflow users create --username admin --firstname admin --lastname admin --role Admin --email admin@example.com --password admin
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW_UID=${AIRFLOW_UID}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+    networks:
+      - data-eng-net
+
+
+  airflow-webserver:
+    image: apache/airflow:${AIRFLOW_VERSION}
+    container_name: airflow-webserver
+    depends_on:
+      - airflow-init
+    ports:
+      - "8081:8080" # Airflow Web UI
+    command: airflow webserver
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    user: "${AIRFLOW_UID}:0"
+    networks: ["data-eng-net"]
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      
+  airflow-scheduler:
+    image: apache/airflow:${AIRFLOW_VERSION}
+    container_name: airflow-scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    command: airflow scheduler
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    user: "${AIRFLOW_UID}:0"
+    networks: ["data-eng-net"]
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+
+# Define named volumes for data persistence
+volumes:
+  postgres-data:
+  kafka1-data:
+  kafka2-data:
+  hdfs-namenode:
+  hdfs-datanode:

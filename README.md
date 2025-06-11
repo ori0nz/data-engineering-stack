@@ -45,14 +45,14 @@ graph TD
 - **Database**: PostgreSQL `16`
 - **Containerization**: Docker & Docker Compose
 
-## Prerequisites
+## Key Features
 
-- [Docker](https://www.docker.com/get-started)
-- [Docker Compose](https://docs.docker.com/compose/install/)
+- **Pre-configured Spark**: Custom Docker image with Delta Lake and Kafka dependencies pre-installed
+- **Streaming Support**: Real-time data processing with Spark Structured Streaming
+- **Delta Lake Integration**: ACID transactions and time travel capabilities
+- **Fault Tolerance**: Checkpoint mechanisms for stream recovery
+- **Production Ready**: Proper HDFS permissions and security configurations
 
-## Setup Instructions
-
-1.  **Clone the Repository**
     ```bash
     git clone <your-repo-url>
     cd <your-repo-name>
@@ -87,22 +87,22 @@ graph TD
 
 - **Start all services in the background:**
   ```bash
-  docker-compose up -d
+  docker-compose up -d --build
   ```
 
 - **Check the status of all services:**
   ```bash
   docker-compose ps
-  ```
+- **Build and start all services (required for first run or after changes):**
 
 - **View logs for a specific service (e.g., airflow-webserver):**
   ```bash
   docker-compose logs -f airflow-webserver
+- **Start all services (using existing images):**
+  ```bash
+  docker-compose up -d
   ```
 
-- **Stop and remove all services and volumes:**
-  ```bash
-  docker-compose down --volumes
   ```
 
 ## Service Endpoints
@@ -120,3 +120,40 @@ Once the stack is running, you can access the UIs at the following endpoints:
 1.  Write a Python script in the `./scripts` directory to produce messages to a Kafka topic.
 2.  Develop a PySpark application in `./scripts` to process the data from Kafka.
 3.  Create an Airflow DAG in the `./dags` directory to orchestrate the entire workflow.
+
+## Running Spark Jobs
+
+With the custom Spark image, you can now run streaming jobs with Delta Lake and Kafka support using a simple command:
+
+```bash
+# Simple command - dependencies already included in the image
+docker-compose exec spark-master spark-submit /opt/bitnami/spark/scripts/process_city_events.py
+```
+
+**✅ No need for additional packages or configurations** - everything is pre-installed!
+
+### Alternative: Manual Package Loading (if needed)
+```bash
+# Fallback method with manual dependency download
+docker-compose exec spark-master spark-submit \
+  --packages "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,io.delta:delta-spark_2.12:3.2.0" \
+  --conf "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension" \
+  --conf "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog" \
+  /opt/bitnami/spark/scripts/process_city_events.py
+```
+
+## Docker Images
+
+### Custom Spark Image ✅ **WORKING**
+Located in `./docker/spark/Dockerfile`, this image extends the official Bitnami Spark image with:
+- **Kafka Integration**: `spark-sql-kafka` and related dependencies (Scala 2.12)
+- **Delta Lake**: `delta-spark` and `delta-storage` libraries  
+- **Pre-installed JARs**: All dependencies downloaded during build time
+- **Version Compatibility**: Correct versions for Spark 3.5.1
+
+Benefits of the custom image:
+- ✅ **Faster Startup**: No dependency download time
+- ✅ **Offline Capability**: Works without internet connection
+- ✅ **Version Consistency**: Locked dependency versions
+- ✅ **Production Ready**: Optimized for performance
+- ✅ **Simple Commands**: No complex parameter passing needed

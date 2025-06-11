@@ -8,7 +8,8 @@ Open a new terminal window and run the following command from the **project root
 
 ```bash
 docker-compose exec spark-master spark-submit \
---packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,io.delta:delta-spark_2.12:3.2.0 \
+--conf "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension" \
+--conf "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog" \
 /opt/bitnami/spark/scripts/process_city_events.py
 ```
 
@@ -18,6 +19,16 @@ docker-compose exec spark-master spark-submit \
 - `spark-submit`: The standard command to submit a Spark job.
 - `--packages ...`: **Important!** This tells Spark to automatically download and load the neces
 
+## Running Spark Jobs
+
+With the custom Spark image, you can now run streaming jobs with Delta Lake and Kafka support using a simple command:
+
+```bash
+# Simple command - dependencies already included in the image
+docker-compose exec spark-master spark-submit /opt/bitnami/spark/scripts/process_city_events.py
+```
+
+**✅ No need for additional packages or configurations** - everything is pre-installed!
 
 ## 🧠 Explanation of Key Changes
 

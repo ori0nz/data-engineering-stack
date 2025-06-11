@@ -101,7 +101,9 @@ services:
   #  Spark Cluster
   # -------------------------------------------------------------------
   spark-master:
-    image: bitnami/spark:${SPARK_VERSION}
+    build:
+      context: ./docker/spark
+      dockerfile: Dockerfile
     container_name: spark-master
     ports: 
       - "8080:8080" # Spark Master Web UI
@@ -115,7 +117,9 @@ services:
       - HADOOP_CONF_DIR=/opt/bitnami/spark/conf/hadoop # Let Spark know where to find Hadoop paths
 
   spark-worker:
-    image: bitnami/spark:${SPARK_VERSION}
+    build:
+      context: ./docker/spark
+      dockerfile: Dockerfile
     container_name: spark-worker
     depends_on: ["spark-master"]
     volumes:
